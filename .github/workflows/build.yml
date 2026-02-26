@@ -8,11 +8,11 @@ on:
 
 jobs:
 
-  # -------------------------
+  # ---------------------------------------------------------
   # WINDOWS BUILD (x64 + ARM64)
-  # -------------------------
+  # ---------------------------------------------------------
   build-windows:
-    name: Build Windows (${{ matrix.arch }})
+    name: Windows (${{ matrix.arch }})
     runs-on: windows-latest
 
     strategy:
@@ -20,7 +20,7 @@ jobs:
         arch: [x64, arm64]
 
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Set up Python
@@ -29,27 +29,35 @@ jobs:
           python-version: "3.11"
           architecture: ${{ matrix.arch }}
 
-      - name: Install dependencies
+      - name: Install Inno Setup
         run: |
-          pip install -r requirements.txt
-          pip install pyinstaller
+          choco install innosetup -y
+        shell: powershell
 
-      - name: Build ICE-Guard.exe
+      - name: Build EXE + Installer via PowerShell
         run: |
-          pyinstaller --noconsole --onefile blackice/main.py --name ICE-Guard-${{ matrix.arch }}
+          ./build-windows.ps1 -Arch "${{ matrix.arch }}" -InnoSetupPath "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+        shell: powershell
 
-      - name: Upload Windows artifact
+      - name: Upload Windows EXE
         uses: actions/upload-artifact@v4
         with:
           name: ICE-Guard-Windows-${{ matrix.arch }}
           path: dist/ICE-Guard-${{ matrix.arch }}.exe
 
+      - name: Upload Windows Installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: ICE-Guard-Installer-${{ matrix.arch }}
+          path: |
+            Output/ICE-Guard_Setup_${{ matrix.arch }}.exe
+            ICE-Guard_Setup_${{ matrix.arch }}.exe
 
-  # -------------------------
+  # ---------------------------------------------------------
   # LINUX BUILD (x64 + ARM64)
-  # -------------------------
+  # ---------------------------------------------------------
   build-linux:
-    name: Build Linux (${{ matrix.arch }})
+    name: Linux (${{ matrix.arch }})
     runs-on: ubuntu-latest
 
     strategy:
@@ -57,7 +65,7 @@ jobs:
         arch: [amd64, arm64]
 
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Enable ARM64 cross-build
@@ -66,7 +74,7 @@ jobs:
           sudo dpkg --add-architecture arm64
           sudo apt update
 
-      - name: Install Python
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
@@ -111,10 +119,9 @@ jobs:
           name: ICE-Guard-DEB-${{ matrix.arch }}
           path: ice-guard_1.0_${{ matrix.arch }}.deb
 
-
-  # -------------------------
+  # ---------------------------------------------------------
   # CREATE GITHUB RELEASE
-  # -------------------------
+  # ---------------------------------------------------------
   release:
     name: Publish Release
     needs: [build-windows, build-linux]
