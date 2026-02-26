@@ -1,20 +1,23 @@
-name: Build ICE-Guard (Windows EXE + Linux DEB)
+name: Build ICE-Guard (Matrix: x64 + ARM64, Auto Release)
 
 on:
   push:
-    branches: [ "main" ]
-  pull_request:
-    branches: [ "main" ]
+    tags:
+      - "v*.*.*"
   workflow_dispatch:
 
 jobs:
 
   # -------------------------
-  # WINDOWS BUILD (EXE)
+  # WINDOWS BUILD (x64 + ARM64)
   # -------------------------
   build-windows:
-    name: Build Windows EXE
+    name: Build Windows (${{ matrix.arch }})
     runs-on: windows-latest
+
+    strategy:
+      matrix:
+        arch: [x64, arm64]
 
     steps:
       - name: Checkout repository
@@ -24,6 +27,7 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+          architecture: ${{ matrix.arch }}
 
       - name: Install dependencies
         run: |
@@ -32,25 +36,35 @@ jobs:
 
       - name: Build ICE-Guard.exe
         run: |
-          pyinstaller --noconsole --onefile blackice/main.py --name ICE-Guard
+          pyinstaller --noconsole --onefile blackice/main.py --name ICE-Guard-${{ matrix.arch }}
 
-      - name: Upload Windows EXE artifact
+      - name: Upload Windows artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ICE-Guard-Windows
-          path: dist/ICE-Guard.exe
+          name: ICE-Guard-Windows-${{ matrix.arch }}
+          path: dist/ICE-Guard-${{ matrix.arch }}.exe
 
 
   # -------------------------
-  # LINUX BUILD (DEB)
+  # LINUX BUILD (x64 + ARM64)
   # -------------------------
   build-linux:
-    name: Build Linux Binary + DEB
+    name: Build Linux (${{ matrix.arch }})
     runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        arch: [amd64, arm64]
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Enable ARM64 cross-build
+        if: matrix.arch == 'arm64'
+        run: |
+          sudo dpkg --add-architecture arm64
+          sudo apt update
 
       - name: Install Python
         uses: actions/setup-python@v5
@@ -66,13 +80,13 @@ jobs:
 
       - name: Build ice-guard binary
         run: |
-          pyinstaller --onefile blackice/main.py --name ice-guard
+          pyinstaller --onefile blackice/main.py --name ice-guard-${{ matrix.arch }}
 
       - name: Prepare DEB structure
         run: |
           mkdir -p iceguard_deb/DEBIAN
           mkdir -p iceguard_deb/usr/local/bin
-          cp dist/ice-guard iceguard_deb/usr/local/bin/
+          cp dist/ice-guard-${{ matrix.arch }} iceguard_deb/usr/local/bin/ice-guard
           chmod 755 iceguard_deb/usr/local/bin/ice-guard
 
           cat <<EOF > iceguard_deb/DEBIAN/control
@@ -80,7 +94,7 @@ jobs:
           Version: 1.0
           Section: utils
           Priority: optional
-          Architecture: amd64
+          Architecture: ${{ matrix.arch }}
           Maintainer: Christoffer
           Description: ICE-Guard network intrusion monitor
            ICE-Guard is a simplified, educational intrusion detection tool inspired by BlackICE.
@@ -89,10 +103,32 @@ jobs:
       - name: Build DEB package
         run: |
           dpkg-deb --build iceguard_deb
-          mv iceguard_deb.deb ice-guard_1.0_amd64.deb
+          mv iceguard_deb.deb ice-guard_1.0_${{ matrix.arch }}.deb
 
-      - name: Upload Linux DEB artifact
+      - name: Upload Linux artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ICE-Guard-DEB
-          path: ice-guard_1.0_amd64.deb
+          name: ICE-Guard-DEB-${{ matrix.arch }}
+          path: ice-guard_1.0_${{ matrix.arch }}.deb
+
+
+  # -------------------------
+  # CREATE GITHUB RELEASE
+  # -------------------------
+  release:
+    name: Publish Release
+    needs: [build-windows, build-linux]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/**/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
